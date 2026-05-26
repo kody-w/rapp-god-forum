@@ -27,8 +27,11 @@
         "note": "Well-known kited address for this room. Whoever holds it is the current ephemeral host; if free, you may host it from your tab."
       }
     ],
-    "cloud_hosts": [],
-    "_comment": "An always-on cloud host (rapp-resident, https://github.com/kody-w/rapp-resident) graduates here as { \"kind\": \"cloud\", \"transport\": \"http\", \"url\": \"https://<app>.azurewebsites.net/api\" } and is tried before the kited address."
+    "cloud_hosts": [
+      { "kind": "cloud", "transport": "http", "url": "https://rapp-resident-kw165843.azurewebsites.net/api",
+        "host": "rapp-resident", "note": "Always-on resident vTwin (Azure Function). Tried before the kited address; the room is `rapp-god-forum`." }
+    ],
+    "_comment": "An always-on cloud host (rapp-resident, https://github.com/kody-w/rapp-resident) is listed above and tried before the kited address."
   },
 
   "working_groups": ["brainstem", "kited-layer", "racon", "commons", "registry", "agents", "governance", "general"],
