@@ -75,6 +75,23 @@ def _b64u(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
 
 
+_V3 = "rappid:v3:"  # legacy v3 prefix — read-forever in signed history, never minted anew
+
+
+def _mint_rappid(pubkey) -> str:
+    """rapp/1 §6.2 KEYED mint: tail = sha256(b"rapp/1:rappid\\n" + SPKI_DER) hex."""
+    spki = pubkey.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    tail = hashlib.sha256(b"rapp/1:rappid\n" + spki).hexdigest()
+    return f"rappid:@being/{tail[:12]}:{tail}"
+
+
+def _short(r) -> str:
+    r = r or ""
+    if r.startswith("rappid:@"):
+        return r.split("/", 1)[-1].split(":", 1)[0][:12]
+    return r.replace(_V3, "")[:12]  # legacy v3 tail — read-forever display
+
+
 def _canonical(obj) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
@@ -90,13 +107,17 @@ def _load_or_mint():
         try:
             j = json.load(open(ID_PATH))
             priv = serialization.load_pem_private_key(j["priv_pem"].encode(), password=None)
+            if str(j.get("rappid", "")).startswith(_V3):  # legacy v3 id on disk — SAME key, re-derive the §6.2 keyed id
+                j["_migrated_from"], j["_migrated_from_note"] = j["rappid"], "legacy v3 string, read-forever"
+                j["rappid"] = _mint_rappid(priv.public_key())
+                json.dump(j, open(ID_PATH, "w"))
             return {"priv": priv, "pub_b64": j["pub_b64"], "rappid": j["rappid"]}
         except Exception:
             pass
     priv = ec.generate_private_key(ec.SECP256R1())
     raw = priv.public_key().public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-    me = {"priv": priv, "pub_b64": _b64u(raw), "rappid": "rappid:v3:" + _b64u(hashlib.sha256(raw).digest())}
+    me = {"priv": priv, "pub_b64": _b64u(raw), "rappid": _mint_rappid(priv.public_key())}  # §6.2 keyed mint; pub stays the raw point (wire compat)
     os.makedirs(STATE_DIR, exist_ok=True)
     pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                              serialization.NoEncryption()).decode()
@@ -180,7 +201,7 @@ class ForumAgent(BasicAgent):
                 return ("No local key — install `cryptography` to mint a rappid handle, or use the "
                         "web forum which mints yours in the browser.")
             me = _load_or_mint()
-            return f"rapp-god forum handle:\n  {me['rappid']}\n  short: {me['rappid'].replace('rappid:v3:', '')[:12]}"
+            return f"rapp-god forum handle:\n  {me['rappid']}\n  short: {_short(me['rappid'])}"
 
         if action == "list":
             base = _cloud_base()
@@ -199,7 +220,7 @@ class ForumAgent(BasicAgent):
                            and (e.get("body") or {}).get("in_reply_to") == _event_id(t))
                 b = t.get("body") or {}
                 out.append(f"  • [{b.get('tag', 'general')}] {b.get('title', '(untitled)')}  "
-                           f"— by {t['from'].replace('rappid:v3:', '')[:12]} · {nrep} repl{'y' if nrep == 1 else 'ies'} · id {_event_id(t)}")
+                           f"— by {_short(t['from'])} · {nrep} repl{'y' if nrep == 1 else 'ies'} · id {_event_id(t)}")
             return "\n".join(out)
 
         # topic / reply — need a signing key
